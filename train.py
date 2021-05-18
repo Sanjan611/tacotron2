@@ -18,13 +18,17 @@ from hparams import create_hparams
 
 
 def reduce_tensor(tensor, n_gpus):
-    rt = tensor.clone()
-    dist.all_reduce(rt, op=dist.reduce_op.SUM)
+    rt = tensor.clone() # returns copy of input
+    dist.all_reduce(rt, op=dist.reduce_op.SUM) # reduces tensor data across all machines such that each machine gets the result
     rt /= n_gpus
     return rt
 
 
 def init_distributed(hparams, n_gpus, rank, group_name):
+
+    # Q: What is meant by rank here??
+
+    # Check if cuda is available
     assert torch.cuda.is_available(), "Distributed mode requires CUDA."
     print("Initializing Distributed")
 
