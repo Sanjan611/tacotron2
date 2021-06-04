@@ -1,6 +1,6 @@
 from math import sqrt
 import torch
-from torch.autograd import Variable
+from torch.autograd import Variable # NOTE: Variable is deprecated API in the latest PyTorch version
 from torch import nn
 from torch.nn import functional as F
 from layers import ConvNorm, LinearNorm
@@ -12,10 +12,13 @@ class LocationLayer(nn.Module):
                  attention_dim):
         super(LocationLayer, self).__init__()
         padding = int((attention_kernel_size - 1) / 2)
+
+        # 1D conv with Xavier initialisation
         self.location_conv = ConvNorm(2, attention_n_filters,
                                       kernel_size=attention_kernel_size,
                                       padding=padding, bias=False, stride=1,
                                       dilation=1)
+        # Linear layer with Xavier initialisation
         self.location_dense = LinearNorm(attention_n_filters, attention_dim,
                                          bias=False, w_init_gain='tanh')
 
@@ -155,7 +158,7 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
 
         convolutions = []
-        for _ in range(hparams.encoder_n_convolutions):
+        for _ in range(hparams.encoder_n_convolutions): # iterate over 3 (originally)
             conv_layer = nn.Sequential(
                 ConvNorm(hparams.encoder_embedding_dim,
                          hparams.encoder_embedding_dim,
@@ -171,17 +174,24 @@ class Encoder(nn.Module):
                             batch_first=True, bidirectional=True)
 
     def forward(self, x, input_lengths):
+
+
         for conv in self.convolutions:
+            # After each convolution layer, apply a dropout layer - regularisation, ensemble
             x = F.dropout(F.relu(conv(x)), 0.5, self.training)
 
         x = x.transpose(1, 2)
 
-        # pytorch tensor are not reversible, hence the conversion
+        # pytorch tensor are not reversible, hence the conversion - QUES: What does this mean??
         input_lengths = input_lengths.cpu().numpy()
+
+        # we pack inputs because batch inputs may be variable in length
         x = nn.utils.rnn.pack_padded_sequence(
             x, input_lengths, batch_first=True)
 
-        self.lstm.flatten_parameters()
+        self.lstm.flatten_parameters() # We call flatten_parameters function at the end of constructor to aggregate all the weight tensors into continuous space of GPU memory 
+        # we should flatten_parameters again everytime the module is replicated to another GPU
+        # https://discuss.pytorch.org/t/why-do-we-need-flatten-parameters-when-using-rnn-with-dataparallel/46506/2
         outputs, _ = self.lstm(x)
 
         outputs, _ = nn.utils.rnn.pad_packed_sequence(
@@ -190,6 +200,8 @@ class Encoder(nn.Module):
         return outputs
 
     def inference(self, x):
+        # Key difference with forward is that packing or padding is not necessary because we are assuming 
+        # an input with fixed size (perhaps like a single text sequence?)
         for conv in self.convolutions:
             x = F.dropout(F.relu(conv(x)), 0.5, self.training)
 
@@ -244,7 +256,7 @@ class Decoder(nn.Module):
         """ Gets all zeros frames to use as first decoder input
         PARAMS
         ------
-        memory: decoder outputs
+        memory: decoder outputs # QUES - should this be encoder outputs instead??
 
         RETURNS
         -------
